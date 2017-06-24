@@ -1,3 +1,6 @@
+#Find-Module xPendingReboot -RequiredVersion 0.1.0.2
+#Find-Module xWindowsUpdate -RequiredVersion 1.0
+
 $Global:WMFUncPath = '\\LVDSC01\Share\'
 
 $Global:WMFScriptPath = Split-Path $Script:MyInvocation.MyCommand.Path
@@ -151,7 +154,7 @@ param(
 
     PROCESS {
 
-        if ($PSCmdlet.ShouldProcess($Global:WMFUncPath)) {
+        if ($PSCmdlet.ShouldProcess("Create Share $Global:WMFUncPath")) {
 
             if (!(Test-Path $FullPath)) {
                 New-Item -Path $FolderPath -Name $FolderName -Type Directory | Out-Null
@@ -160,6 +163,21 @@ param(
 
             New-SmbShare -ReadAccess Everyone -Path $FullPath -Name $FolderName | Out-Null
             Write-Host "Shared $Global:WMFUncPath"
+        }
+
+        if ($PSCmdlet.ShouldProcess('Download WMF')) {
+
+            #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
+            $OperatingSystem = 'W2K12R2'
+
+            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | ? Class -eq 'mscom-link download-button dl' | % href)
+
+            foreach ($OS in $OperatingSystem) {
+                $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | ? Class -eq 'mscom-link' | ? href -match $OS).href[0]
+                Write-Verbose "$URL"
+                
+                Invoke-WebRequest $URL -OutFile (Join-Path $FullPath $($URL.Split('/')[-1]))
+            }      
         }
     }
 }

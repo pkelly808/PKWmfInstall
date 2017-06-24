@@ -1,5 +1,5 @@
 # PKWmfInstall
-Remote Install Windows Management Framework
+PowerShell Module (Tool) to create a DSC Configuration and upgrade Windows Management Framework on remote computers.
 
 ## New-PKWmfShare
 Create a shared folder.  Manually download the latest version of WMF
