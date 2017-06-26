@@ -153,7 +153,7 @@ param(
             #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
             $OperatingSystem = 'W2K12R2'
 
-            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | ? Class -eq 'mscom-link download-button dl' | % href)
+            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | foreach href)
 
             foreach ($OS in $OperatingSystem) {
                 $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
@@ -175,7 +175,7 @@ param(
 
 function Start-PKWmfInstall {
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess,ConfirmImpact='High')]
 param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName,
@@ -190,6 +190,8 @@ param(
         Write-Verbose $Path
 
         foreach ($Computer in $ComputerName) {
+
+            if ($PSCmdlet.ShouldProcess("$Computer")) {
 
             if ($Computer -eq 'localhost' -or $Computer -eq '.') {
                 Write-Warning "Please use computer name instead of $Computer"
@@ -207,6 +209,7 @@ param(
 
             Start-DscConfiguration -Path "$Path" -ComputerName $Computer -Wait -Verbose -Force
         }
+    }
     }
 }
 
@@ -258,7 +261,7 @@ function Clear-PKWmfConfiguration {
 
 function Remove-PKWmfConfiguration {
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess,ConfirmImpact='High')]
 param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName
@@ -268,10 +271,14 @@ param(
 
         foreach ($Computer in $ComputerName) {
 
+            if ($PSCmdlet.ShouldProcess("$Computer")) {
+
             Invoke-Command -ComputerName $Computer -ScriptBlock {
                 Remove-Item 'C:\windows\system32\configuration\*.mof'
                 Remove-Item 'C:\Program Files\WindowsPowerShell\Modules\[xc]*' -Recurse -Force
             }
+        }
+        
         }
 
         Get-PKWmfInstall -ComputerName $Computer
