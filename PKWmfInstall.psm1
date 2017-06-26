@@ -77,7 +77,7 @@ param(
 
 function New-PKWmfConfiguration {
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess,ConfirmImpact='Medium')]
 param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName,
@@ -106,7 +106,9 @@ param(
     PROCESS {
 
         foreach ($Computer in $ComputerName) {
+            if ($PSCmdlet.ShouldProcess("Create Share $WMFUncPath")) {
             Invoke-Expression "$Global:WMFDscConfig"
+            }
         }
     }
 
@@ -153,7 +155,7 @@ param(
             #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
             $OperatingSystem = 'W2K12R2'
 
-            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | foreach href)
+            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | ForEach-Object {$_.href})
 
             foreach ($OS in $OperatingSystem) {
                 $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
@@ -278,7 +280,6 @@ param(
                 Remove-Item 'C:\Program Files\WindowsPowerShell\Modules\[xc]*' -Recurse -Force
             }
         }
-        
         }
 
         Get-PKWmfInstall -ComputerName $Computer
