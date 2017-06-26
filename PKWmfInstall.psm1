@@ -6,8 +6,7 @@ $Global:WMFDscConfig = 'PKWmfInstall'
 #region Private Functions
 
 Configuration $Global:WMFDscConfig {
-    #Import-DscResource -Module PSDesiredStateConfiguration, xWindowsUpdate, xPendingReboot
-    Import-DscResource -Module @{ModuleName='xWindowsUpdate';ModuleVersion='1.0'},@{ModuleName='xPendingReboot';ModuleVersion='0.1.0.2'}
+    Import-DscResource -Module PSDesiredStateConfiguration,@{ModuleName='xWindowsUpdate';ModuleVersion='1.0'},@{ModuleName='xPendingReboot';ModuleVersion='0.1.0.2'}
 
     Node $ComputerName {
 
@@ -63,15 +62,14 @@ param(
     PROCESS {
 
         foreach ($Computer in $ComputerName) {
-        
-            if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost' -or $Computer -eq '.') {
-                continue
-            }
 
-            foreach ($Mod in $Module) {
+            if ($Computer -ne $env:COMPUTERNAME -and $Computer -ne 'localhost' -and $Computer -ne '.') {
 
-                Copy-Item "$Env:ProgramFiles\WindowsPowerShell\Modules\$Mod" "\\$ComputerName\C$\Program Files\WindowsPowerShell\Modules\" -Recurse -Force
-            
+                foreach ($Mod in $Module) {
+
+                    Copy-Item "$Env:ProgramFiles\WindowsPowerShell\Modules\$Mod" "\\$Computer\C$\Program Files\WindowsPowerShell\Modules\" -Recurse -Force
+
+                }
             }
         }
     }
@@ -108,11 +106,6 @@ param(
     PROCESS {
 
         foreach ($Computer in $ComputerName) {
-
-            #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
-
-            #Copy-PKResource -ComputerName $Computer -Module xWindowsUpdate,xPendingReboot
-
             Invoke-Expression "$Global:WMFDscConfig"
         }
     }
@@ -139,7 +132,7 @@ param(
         $Path = Join-Path $FolderPath $FolderName
 
         if (!(Test-Path $WMFUncPath)) {
-        
+
             if ($PSCmdlet.ShouldProcess("Create Share $WMFUncPath")) {
 
                 if (!(Test-Path $Path)) {
@@ -163,11 +156,11 @@ param(
             $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | ? Class -eq 'mscom-link download-button dl' | % href)
 
             foreach ($OS in $OperatingSystem) {
-                $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | ? Class -eq 'mscom-link' | ? href -match $OS).href[0]
+                $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
                 Write-Verbose "Url $URL"
 
                 $File = $URL.Split('/')[-1]
-                
+
                 Invoke-WebRequest $URL -OutFile (Join-Path $Path $File)
                 Write-Verbose "Downloaded $File"
 
@@ -186,6 +179,7 @@ function Start-PKWmfInstall {
 param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName,
+
     [bool]$Reboot = $false,
     [bool]$CopyOnly = $false
 )
@@ -197,10 +191,13 @@ param(
 
         foreach ($Computer in $ComputerName) {
 
-            #if (!(Test-Path "$Path" -Include "$Computer*")) {
-                $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
-                $Files | ForEach-Object { Write-Verbose "Created $_" }
-            #}
+            if ($Computer -eq 'localhost' -or $Computer -eq '.') {
+                Write-Warning "Please use computer name instead of $Computer"
+                continue
+            }
+
+            $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
+            $Files | ForEach-Object { Write-Verbose "Created $_" }
 
             #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
 
