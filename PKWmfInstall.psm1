@@ -1,16 +1,13 @@
-#Find-Module xPendingReboot -RequiredVersion 0.1.0.2
-#Find-Module xWindowsUpdate -RequiredVersion 1.0
-
-$Global:WMFUncPath = '\\LVDSC01\Share\'
-
 $Global:WMFScriptPath = Split-Path $Script:MyInvocation.MyCommand.Path
-$Global:WMFConfig = 'PKWmfInstall'
+$Global:WMFConfigFile = Join-Path $Global:WMFScriptPath 'config.json'
 
+$Global:WMFDscConfig = 'PKWmfInstall'
 
 #region Private Functions
 
-Configuration $Global:WMFConfig {
-    Import-DscResource -Module PSDesiredStateConfiguration, xWindowsUpdate, xPendingReboot
+Configuration $Global:WMFDscConfig {
+    #Import-DscResource -Module PSDesiredStateConfiguration, xWindowsUpdate, xPendingReboot
+    Import-DscResource -Module @{ModuleName='xWindowsUpdate';ModuleVersion='1.0'},@{ModuleName='xPendingReboot';ModuleVersion='0.1.0.2'}
 
     Node $ComputerName {
 
@@ -20,16 +17,16 @@ Configuration $Global:WMFConfig {
         }
 
         File TempDir {
-            DestinationPath = 'C:\Temp'
+            DestinationPath = 'c:\temp'
             Force           = $True
             Ensure          = 'Present'
             Type            = 'Directory'
         }
 
         File WMFSource {
-            DestinationPath = "C:\Temp\$File"
+            DestinationPath = "c:\temp\$File"
             Ensure          = 'Present'
-            SourcePath      = Join-Path $Global:WMFUncPath $File
+            SourcePath      = $FullPath
             Type            = 'File'
             Force           = $True
             DependsOn       = '[File]TempDir'
@@ -39,7 +36,7 @@ Configuration $Global:WMFConfig {
             xHotFix WMFInstall {
                 Id        = $KB
                 Ensure    = 'Present'
-                Path      = "C:\Temp\$File"
+                Path      = "c:\temp\$File"
                 DependsOn = '[File]WMFSource'
             }
 
@@ -66,19 +63,15 @@ param(
     PROCESS {
 
         foreach ($Computer in $ComputerName) {
+        
+            if ($Computer -eq $env:COMPUTERNAME -or $Computer -eq 'localhost' -or $Computer -eq '.') {
+                continue
+            }
 
             foreach ($Mod in $Module) {
 
-                if (!(Get-Module $Mod -ListAvailable)) {
-                    try {
-                        Install-Module $Mod -Force
-                    } catch {
-                        Write-Warning "Unable to install $Mod"
-                        continue
-                    }
-                }
-
                 Copy-Item "$Env:ProgramFiles\WindowsPowerShell\Modules\$Mod" "\\$ComputerName\C$\Program Files\WindowsPowerShell\Modules\" -Recurse -Force
+            
             }
         }
     }
@@ -92,14 +85,16 @@ param(
     [string[]]$ComputerName,
 
     [bool]$Reboot,
-    [bool]$CopyOnly,
-
-    [string]$File = 'Win8.1AndW2K12R2-KB3191564-x64.msu'
+    [bool]$CopyOnly
 )
 
     BEGIN {
-        if (!(Test-Path (Join-Path $Global:WMFUncPath $File))) {
-            Write-Warning "File not found $(Join-Path $Global:WMFUncPath $File)"
+        $Config = Get-Content $Global:WMFConfigFile | ConvertFrom-Json
+        $FullPath = Join-Path $Config.WMFUncPath $Config.W2K12R2
+        $File = $Config.W2K12R2
+
+        if (!(Test-Path $FullPath)) {
+            Write-Warning "File not found $FullPath"
             break
         }
 
@@ -118,7 +113,7 @@ param(
 
             #Copy-PKResource -ComputerName $Computer -Module xWindowsUpdate,xPendingReboot
 
-            Invoke-Expression "$Global:WMFConfig"
+            Invoke-Expression "$Global:WMFDscConfig"
         }
     }
 
@@ -138,32 +133,27 @@ param(
     [string]$FolderName = 'Share'
 )
 
-    BEGIN {
-        if (!($Global:WMFUncPath -eq "\\$env:COMPUTERNAME\$FolderName\")) {
-            Write-Warning "Does not match Global UNC Path: $Global:WMFUncPath"
-            break
-        }
-
-        if (Test-Path $Global:WMFUncPath) {
-            Write-Warning "$Global:WMFUncPath already exists"
-            break
-        }
-
-        $FullPath = Join-Path $FolderPath $FolderName
-    }
-
     PROCESS {
 
-        if ($PSCmdlet.ShouldProcess("Create Share $Global:WMFUncPath")) {
+        $WMFUncPath = "\\$env:COMPUTERNAME\$FolderName\"
+        $Path = Join-Path $FolderPath $FolderName
 
-            if (!(Test-Path $FullPath)) {
-                New-Item -Path $FolderPath -Name $FolderName -Type Directory | Out-Null
-                Write-Host "Created $FullPath"
+        if (!(Test-Path $WMFUncPath)) {
+        
+            if ($PSCmdlet.ShouldProcess("Create Share $WMFUncPath")) {
+
+                if (!(Test-Path $Path)) {
+                    New-Item -Path $FolderPath -Name $FolderName -Type Directory | Out-Null
+                    Write-Verbose "Created $Path"
+                }
+
+                New-SmbShare -ReadAccess Everyone -Path $Path -Name $FolderName | Out-Null
+                Write-Verbose "Shared $WMFUncPath"
             }
-
-            New-SmbShare -ReadAccess Everyone -Path $FullPath -Name $FolderName | Out-Null
-            Write-Host "Shared $Global:WMFUncPath"
         }
+
+        $Config = New-Object PSObject
+        $Config | Add-Member -NotePropertyName WMFUncPath -NotePropertyValue $WMFUncPath
 
         if ($PSCmdlet.ShouldProcess('Download WMF')) {
 
@@ -174,11 +164,18 @@ param(
 
             foreach ($OS in $OperatingSystem) {
                 $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | ? Class -eq 'mscom-link' | ? href -match $OS).href[0]
-                Write-Verbose "$URL"
+                Write-Verbose "Url $URL"
+
+                $File = $URL.Split('/')[-1]
                 
-                Invoke-WebRequest $URL -OutFile (Join-Path $FullPath $($URL.Split('/')[-1]))
-            }      
+                Invoke-WebRequest $URL -OutFile (Join-Path $Path $File)
+                Write-Verbose "Downloaded $File"
+
+                $Config | Add-Member -NotePropertyName $OS -NotePropertyValue $File
+            }
         }
+
+        $Config | ConvertTo-Json | Out-File $Global:WMFConfigFile
     }
 }
 
@@ -195,15 +192,15 @@ param(
 
     PROCESS {
 
-        $Path = Join-Path $Global:WMFScriptPath $Global:WMFConfig
+        $Path = Join-Path $Global:WMFScriptPath $Global:WMFDscConfig
         Write-Verbose $Path
 
         foreach ($Computer in $ComputerName) {
 
-            if (!(Test-Path "$Path" -Include "$Computer*")) {
+            #if (!(Test-Path "$Path" -Include "$Computer*")) {
                 $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
                 $Files | ForEach-Object { Write-Verbose "Created $_" }
-            }
+            #}
 
             #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
 
@@ -238,22 +235,22 @@ param(
 
             try {
                 Get-DscConfiguration -CimSession $Computer -ea Stop | Out-Null
-                $Clear = $false
+                $Removed = $false
             } catch {
-                $Clear = $true
+                $Removed = $true
             }
 
             [PSCustomObject]@{
                 ComputerName=$Computer
                 PowerShell=$Version
-                ConfigRemoved=$Clear
+                ConfigRemoved=$Removed
             }
         }
     }
 }
 
 function Clear-PKWmfConfiguration {
-    $Path = Join-Path $Global:WMFScriptPath $Global:WMFConfig
+    $Path = Join-Path $Global:WMFScriptPath $Global:WMFDscConfig
 
     try {
         Remove-Item "$Path" -Recurse -Force -ea Stop
