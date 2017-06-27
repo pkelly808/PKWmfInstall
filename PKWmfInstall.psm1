@@ -1,11 +1,6 @@
-$Global:WMFScriptPath = Split-Path $Script:MyInvocation.MyCommand.Path
-$Global:WMFConfigFile = Join-Path $Global:WMFScriptPath 'config.json'
-
-$Global:WMFDscConfig = 'PKWmfInstall'
-
 #region Private Functions
 
-Configuration $Global:WMFDscConfig {
+Configuration PKWmfInstall {
     Import-DscResource -Module PSDesiredStateConfiguration,@{ModuleName='xWindowsUpdate';ModuleVersion='1.0'},@{ModuleName='xPendingReboot';ModuleVersion='0.1.0.2'}
 
     Node $ComputerName {
@@ -87,7 +82,7 @@ param(
 )
 
     BEGIN {
-        $Config = Get-Content $Global:WMFConfigFile | ConvertFrom-Json
+        $Config = Get-Content (Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) 'config.json') | ConvertFrom-Json
         $FullPath = Join-Path $Config.WMFUncPath $Config.W2K12R2
         $File = $Config.W2K12R2
 
@@ -100,14 +95,17 @@ param(
         Write-Verbose $KB
 
         $Working = (Get-Location).Path
-        Set-Location $Global:WMFScriptPath
+        Set-Location (Split-Path $Script:MyInvocation.MyCommand.Path)
     }
 
     PROCESS {
 
         foreach ($Computer in $ComputerName) {
-            if ($PSCmdlet.ShouldProcess("Create Share $WMFUncPath")) {
-            Invoke-Expression "$Global:WMFDscConfig"
+
+            if ($PSCmdlet.ShouldProcess($Computer)) {
+
+                PKWmfInstall
+            
             }
         }
     }
@@ -135,7 +133,7 @@ param(
 
         if (!(Test-Path $WMFUncPath)) {
 
-            if ($PSCmdlet.ShouldProcess("Create Share $WMFUncPath")) {
+            if ($PSCmdlet.ShouldProcess($WMFUncPath)) {
 
                 if (!(Test-Path $Path)) {
                     New-Item -Path $FolderPath -Name $FolderName -Type Directory | Out-Null
@@ -150,27 +148,25 @@ param(
         $Config = New-Object PSObject
         $Config | Add-Member -NotePropertyName WMFUncPath -NotePropertyValue $WMFUncPath
 
-        if ($PSCmdlet.ShouldProcess('Download WMF')) {
 
-            #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
-            $OperatingSystem = 'W2K12R2'
+        #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
+        $OperatingSystem = 'W2K12R2'
 
-            $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | ForEach-Object {$_.href})
+        $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | ForEach-Object {$_.href})
 
-            foreach ($OS in $OperatingSystem) {
-                $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
-                Write-Verbose "Url $URL"
+        foreach ($OS in $OperatingSystem) {
+            $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
+            Write-Verbose "Url $URL"
 
-                $File = $URL.Split('/')[-1]
+            $File = $URL.Split('/')[-1]
 
-                Invoke-WebRequest $URL -OutFile (Join-Path $Path $File)
-                Write-Verbose "Downloaded $File"
+            Invoke-WebRequest $URL -OutFile (Join-Path $Path $File)
+            Write-Verbose "Downloaded $File"
 
-                $Config | Add-Member -NotePropertyName $OS -NotePropertyValue $File
-            }
+            $Config | Add-Member -NotePropertyName $OS -NotePropertyValue $File
         }
 
-        $Config | ConvertTo-Json | Out-File $Global:WMFConfigFile
+        $Config | ConvertTo-Json | Out-File (Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) 'config.json')
     }
 }
 
@@ -186,32 +182,39 @@ param(
     [bool]$CopyOnly = $false
 )
 
+    BEGIN {
+        if (!(Test-Path (Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) 'config.json'))) {
+            Write-Warning 'Please run New-PKWmfShare'
+            break
+        }
+    }
+
     PROCESS {
 
-        $Path = Join-Path $Global:WMFScriptPath $Global:WMFDscConfig
+        $Path = Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) PKWmfInstall
         Write-Verbose $Path
 
         foreach ($Computer in $ComputerName) {
-
-            if ($PSCmdlet.ShouldProcess("$Computer")) {
 
             if ($Computer -eq 'localhost' -or $Computer -eq '.') {
                 Write-Warning "Please use computer name instead of $Computer"
                 continue
             }
 
-            $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
-            $Files | ForEach-Object { Write-Verbose "Created $_" }
+            if ($PSCmdlet.ShouldProcess($Computer)) {
 
-            #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
+                $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
+                $Files | ForEach-Object { Write-Verbose "Created $_" }
 
-            Copy-PKResource -ComputerName $Computer -Module xWindowsUpdate,xPendingReboot
+                #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
 
-            Set-DscLocalConfigurationManager -Path "$Path" -Verbose
+                Copy-PKResource -ComputerName $Computer -Module xWindowsUpdate,xPendingReboot
 
-            Start-DscConfiguration -Path "$Path" -ComputerName $Computer -Wait -Verbose -Force
+                Set-DscLocalConfigurationManager -Path "$Path" -Verbose
+
+                Start-DscConfiguration -Path "$Path" -ComputerName $Computer -Wait -Verbose -Force
+            }
         }
-    }
     }
 }
 
@@ -252,7 +255,7 @@ param(
 }
 
 function Clear-PKWmfConfiguration {
-    $Path = Join-Path $Global:WMFScriptPath $Global:WMFDscConfig
+    $Path = Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) PKWmfInstall
 
     try {
         Remove-Item "$Path" -Recurse -Force -ea Stop
@@ -273,13 +276,13 @@ param(
 
         foreach ($Computer in $ComputerName) {
 
-            if ($PSCmdlet.ShouldProcess("$Computer")) {
+            if ($PSCmdlet.ShouldProcess($Computer)) {
 
-            Invoke-Command -ComputerName $Computer -ScriptBlock {
-                Remove-Item 'C:\windows\system32\configuration\*.mof'
-                Remove-Item 'C:\Program Files\WindowsPowerShell\Modules\[xc]*' -Recurse -Force
+                Invoke-Command -ComputerName $Computer -ScriptBlock {
+                    Remove-Item 'C:\windows\system32\configuration\*.mof'
+                    Remove-Item 'C:\Program Files\WindowsPowerShell\Modules\[xc]*' -Recurse -Force
+                }
             }
-        }
         }
 
         Get-PKWmfInstall -ComputerName $Computer
