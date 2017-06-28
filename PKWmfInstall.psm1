@@ -77,8 +77,8 @@ param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName,
 
-    [bool]$Reboot,
-    [bool]$CopyOnly
+    [bool]$Reboot = $false,
+    [bool]$CopyOnly = $false
 )
 
     BEGIN {
@@ -123,7 +123,7 @@ function New-PKWmfShare {
 [CmdletBinding(SupportsShouldProcess,ConfirmImpact='High')]
 param(
     [string]$FolderPath = 'C:\',
-    [string]$FolderName = 'Share'
+    [string]$FolderName = 'WMFInstall'
 )
 
     PROCESS {
@@ -152,7 +152,7 @@ param(
         #$OperatingSystem = 'W2K8R2','W2K12','W2K12R2'
         $OperatingSystem = 'W2K12R2'
 
-        $ConfirmationPage = 'http://www.microsoft.com/en-us/download/' + $((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl' | ForEach-Object {$_.href})
+        $ConfirmationPage = "http://www.microsoft.com/en-us/download/$(((Invoke-WebRequest 'http://aka.ms/wmf5latest' -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link download-button dl').href)"
 
         foreach ($OS in $OperatingSystem) {
             $URL = ((Invoke-WebRequest $ConfirmationPage -UseBasicParsing).Links | Where-Object Class -eq 'mscom-link' | Where-Object href -match $OS).href[0]
@@ -178,14 +178,26 @@ param(
     [Parameter(Mandatory,ValueFromPipeline,ValueFromPipelineByPropertyName)]
     [string[]]$ComputerName,
 
-    [bool]$Reboot = $false,
-    [bool]$CopyOnly = $false
+    [switch]$Reboot,
+    [switch]$CopyOnly
 )
 
     BEGIN {
         if (!(Test-Path (Join-Path (Split-Path $Script:MyInvocation.MyCommand.Path) 'config.json'))) {
             Write-Warning 'Please run New-PKWmfShare'
             break
+        }
+
+        if ($Reboot) {
+            [bool]$Reboot = $true
+        } else {
+            [bool]$Reboot = $false
+        }
+
+        if ($CopyOnly) {
+            [bool]$CopyOnly = $true
+        } else {
+            [bool]$CopyOnly = $false
         }
     }
 
@@ -203,7 +215,7 @@ param(
 
             if ($PSCmdlet.ShouldProcess($Computer)) {
 
-                $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $false
+                $Files = New-PKWmfConfiguration -ComputerName $Computer -Reboot $Reboot -CopyOnly $CopyOnly
                 $Files | ForEach-Object { Write-Verbose "Created $_" }
 
                 #Set-NetFirewallRule -CimSession $Computer -DisplayGroup "File and Printer Sharing" -Profile Domain -Enabled True
