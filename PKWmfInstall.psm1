@@ -1,7 +1,6 @@
 #region Private Functions
 
 Configuration PKWmfInstall {
-    #Import-DscResource -Module PSDesiredStateConfiguration,@{ModuleName='xWindowsUpdate';ModuleVersion='1.0'},@{ModuleName='xPendingReboot';ModuleVersion='0.1.0.2'}
     Import-DscResource -Module PSDesiredStateConfiguration,@{ModuleName='xWindowsUpdate';RequiredVersion='1.0'},@{ModuleName='xPendingReboot';RequiredVersion='0.1.0.2'}
 
     Node $ComputerName {
